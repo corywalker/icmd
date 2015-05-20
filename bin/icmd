@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+
+from subprocess import check_output
+from os.path import expanduser
+from collections import defaultdict
+import sqlite3
+import datetime
+import argparse
+#import bplist
+import readline
+
+parser = argparse.ArgumentParser(
+    description="Command line interface to OSX Messages",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
+
+modes = parser.add_mutually_exclusive_group()
+modes.add_argument("-s", "--send", dest="mode", action='store_const',
+                   const='send', default='check',
+                   help='Set to send mode rather than check mode')
+
+checking = parser.add_argument_group('MODE: Checking (default)')
+checking.add_argument("-n", "--number", type=int, help='Number of messages to grab, newest first')
+checking.add_argument("-l", "--limit", type=int, help='Max number of messages to display per buddy')
+checking.set_defaults(number=50, max=5)
+
+sending = parser.add_argument_group('MODE: Sending')
+sending.add_argument("-b", "--buddy", type=str, help='Buddy to send message to. Name matches against displayed name or number.')
+sending.add_argument("-m", "--msg", type=str, help='Message to send. Will prompt if not provided.')
+sending.add_argument("--first", dest="first", action='store_true', help="Noninteractive send. Send to the first matching buddy. CAN CAUSE SENDING TO UNINTENTIONAL BUDDIES.")
+
+parser.add_argument("-d", "--debug", dest="debug", action='store_true', help="Debug mode. Do not actually send any messages, print commands instead.")
+args = parser.parse_args()
+
+conn = sqlite3.connect(expanduser('~/Library/Messages/chat.db'))
+c = conn.cursor()
+
+def get_buddy_map():
+    buddies = check_output(['osascript', '-e', 'tell application "Messages" to get buddies'])[:-1]
+    buddies = buddies.split(', ')
+    buddies = [b.split(':')[1:] for b in buddies]
+    buddies = [':'.join(b) for b in buddies]
+
+    #import collections
+    #print [x for x, y in collections.Counter(buddies).items() if y > 1]
+
+    buddy_names = check_output(['osascript', '-e', 'tell application "Messages" to get name of buddies'])[:-1]
+    buddy_names = buddy_names.split(', ')
+
+    #print len(buddies)
+    #print len(buddy_names)
+
+    buddy_map = {}
+
+    for i in range(len(buddies)):
+        buddy_map[buddies[i]] = buddy_names[i]
+
+    return buddy_map
+
+def get_service_map():
+    services = check_output(['osascript', '-e', 'tell application "Messages" to get services'])[:-1]
+    services = services.split(', ')
+    services = [b.split('service id ') for b in services]
+    services = [''.join(b) for b in services]
+
+    service_names = check_output(['osascript', '-e', 'tell application "Messages" to get name of services'])[:-1]
+    service_names = service_names.split(', ')
+
+    service_map = {}
+
+    for i in range(len(services)):
+        service_map[services[i]] = service_names[i]
+
+    return service_map
+
+class Conversation:
+    def __init__(self):
+        self.msgdicts = []
+
+    def add_msg(self, msg):
+        self.msgdicts.append(msg)
+
+    def last_msg(self):
+        # SHOULD NOT ASSUME SORTED
+        return self.msgdicts[-1]
+
+    def last_msg_time(self):
+        return self.last_msg()['date']
+
+    def get_msgs(self):
+        return self.msgdicts[-args.max:]
+
+    def __unicode__(self):
+        toreturn = '%s:\n' % (buddy_map[buddy_id].upper())
+        for msg in convos[buddy_id].get_msgs():
+            direction = {1: '\t<', 0: '>'}[msg['is_from_me']]
+            ts = datetime.datetime.fromtimestamp(msg['date']+978307200).strftime('%m-%d %H:%M:%S')
+            prefix = '%s %s ' % (ts, direction)
+            whitespace = ''
+            for c in prefix:
+                if not c.isspace():
+                    whitespace += ' '
+                else:
+                    whitespace += c
+            text = msg['text']
+            if len(msg['attachments']):
+                text += '\nATTACHMENTS:'
+                for a in msg['attachments']:
+                    text += '\n' + a[6]
+            text = text.replace('\n', '\n' + whitespace)
+            toreturn += '%s%s\n' % (prefix, text)
+        return toreturn
+
+    def reply(self, msg):
+        service_map = get_service_map()
+        query = 'select chat_id from chat_message_join where message_id = %d' % self.last_msg()['M.ROWID']
+        chat_id = c.execute(query).fetchone()[0]
+        query = 'select account_id, properties from chat where ROWID = %d' % chat_id
+        chat = c.execute(query).fetchone()
+
+        #reader = bplist.BPlistReader(chat[1])
+        #print reader.parse()
+
+        osacmd = 'tell application "Messages" to send "%s" to buddy "%s" of service "%s"'
+        osacmd = osacmd % (msg, buddy_id, service_map[chat[0]])
+        cmd = ['osascript', '-e', osacmd]
+        if args.debug:
+            print cmd
+        else:
+            out = check_output(cmd)[:-1]
+
+def get_conversations():
+    fields = 'M.ROWID, text, handle_id, date, is_from_me, M.service, H.id, cache_has_attachments'
+    query = 'select %s from message as M join handle as H on M.handle_id=H.ROWID order by date desc limit %d;' % (fields, args.number)
+    splitfields = fields.split(', ')
+    msgs = []
+    for line in c.execute(query):
+        row = {}
+        for i, part in enumerate(line):
+            row[splitfields[i]] = part
+        msgs.append(row)
+    for msg in msgs:
+        if msg['cache_has_attachments']:
+            query = 'select * from message_attachment_join join attachment ON (attachment.ROWID = message_attachment_join.attachment_id) where message_id = %d;' % msg['M.ROWID']
+            msg['attachments'] = list(c.execute(query))
+        else:
+            msg['attachments'] = []
+
+    convos = {}
+    for msg in reversed(msgs):
+        if msg['H.id'] not in convos:
+            convos[msg['H.id']] = Conversation()
+        convos[msg['H.id']].add_msg(msg)
+
+    return convos
+
+buddy_map = get_buddy_map()
+
+if args.mode == 'check':
+    convos = get_conversations()
+    for buddy_id, convo in sorted(convos.items(), key=lambda t: t[1].last_msg_time()):
+        print unicode(convo)
+elif args.mode == 'send':
+    if args.buddy is None:
+        exit("Must provide buddy name to send a message.")
+    msg = args.msg
+    convos = get_conversations()
+    for buddy_id, convo in sorted(convos.items(), key=lambda t: t[1].last_msg_time(), reverse=True):
+        bname = buddy_map[buddy_id]
+        if args.buddy.lower() in bname.lower():
+            print unicode(convo)
+            if not bool(msg):
+                msg = raw_input('Message to send: ')
+            tosend = bool(msg)
+            if tosend and args.msg is not None and not args.first:
+                tosend = raw_input("Send message '%s' (y/N) " % msg).lower() == 'y'
+            if tosend:
+                convo.reply(msg)
+                break
+    else:
+        exit("Did not find matching buddy.")
+else:
+    exit("Undefined mode.")
