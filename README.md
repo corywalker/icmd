@@ -29,3 +29,27 @@ MODE: Sending:
                         CAN CAUSE SENDING TO UNINTENTIONAL BUDDIES. (default:
                         False)
 ```
+
+Examples:
+```
+{19:46}~ ➭ icmd
+BRANDON KELCEY:
+05-20 19:15:07  < At the football game!
+
+CHARLIE MCGUIRE:
+05-20 19:19:24 > OK you can text but don't call - in the library
+05-20 19:19:28 > What are you up to tonight?
+05-20 19:22:02  < Not sure - I'm going to the game first
+05-20 19:23:54 > Sounds good. we should hang out after
+```
+
+```
+{19:54}~ ➭ icmd -s -b charlie
+CHARLIE MCGUIRE:
+05-20 19:19:24 > OK you can text but don't call - in the library
+05-20 19:19:28 > What are you up to tonight?
+05-20 19:22:02  < Not sure - I'm going to the game first
+05-20 19:23:54 > Sounds good. we should hang out after
+
+Message to send: absolutely!
+```
