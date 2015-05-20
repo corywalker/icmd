@@ -1,3 +1,5 @@
+
+```
 usage: icmd [-h] [-s] [-n NUMBER] [-l LIMIT] [-b BUDDY] [-m MSG] [--first]
             [-d]
 
@@ -26,3 +28,4 @@ MODE: Sending:
   --first               Noninteractive send. Send to the first matching buddy.
                         CAN CAUSE SENDING TO UNINTENTIONAL BUDDIES. (default:
                         False)
+```
