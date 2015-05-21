@@ -30,7 +30,14 @@ MODE: Sending:
                         False)
 ```
 
+Install:
+--------
+
+This is just a single script in the `bin` folder. Simply clone the repository and run it as you wish.
+
 Examples:
+---------
+
 ```
 {19:46}~ ➭ icmd
 BRANDON KELCEY:
